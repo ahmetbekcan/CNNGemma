@@ -1,2 +1,4 @@
 dataset
 settings.json
+__pycache__
+weights
