@@ -8,11 +8,12 @@ class MobileNetConfig():
     def __init__(
         self,
         hidden_size=2048,
+        mobile_net_final_size=960,
         **kwargs
     ):
         super().__init__()
         self.hidden_size = hidden_size
-        self.mobile_net_final_size = 960
+        self.mobile_net_final_size = mobile_net_final_size
     
 class MobileGemmaConfig():
     def __init__(
@@ -61,7 +62,7 @@ class MobileNetProjector(nn.Module):
         x = self.projection_layer(x)
         return x
 
-class MobileNetModel(nn.Module):
+class MobileNetImageEncoder(nn.Module):
 
     def __init__(self, config: MobileNetConfig):
         super().__init__()
@@ -71,13 +72,14 @@ class MobileNetModel(nn.Module):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.encoder(x)
+        x = x.unsqueeze(1)
         return x
 
 class MobileGemmaForConditionalGeneration(nn.Module):
     def __init__(self, config: MobileGemmaConfig):
         super().__init__()
         self.config = config
-        self.vision_tower = MobileNetModel(config.vision_config)
+        self.vision_tower = MobileNetImageEncoder(config.vision_config)
         self.multi_modal_projector = MobileNetProjector(config.vision_config)
         self.vocab_size = config.vocab_size
 
@@ -177,7 +179,6 @@ class MobileGemmaForConditionalGeneration(nn.Module):
         selected_image_feature = self.vision_tower(pixel_values.to(inputs_embeds.dtype))
         # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Hidden_Size]
         image_features = self.multi_modal_projector(selected_image_feature)
-
         # Merge the embeddings of the text tokens and the image tokens
         inputs_embeds, attention_mask, position_ids = self._merge_input_ids_with_image_features(image_features, inputs_embeds, input_ids, attention_mask, kv_cache)
         
