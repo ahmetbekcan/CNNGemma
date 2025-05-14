@@ -8,12 +8,16 @@ class MobileNetConfig():
     def __init__(
         self,
         hidden_size=2048,
-        mobile_net_final_size=960,
+        image_token_size=960,
+        num_image_tokens=49,
+        image_size=224,
         **kwargs
     ):
         super().__init__()
         self.hidden_size = hidden_size
-        self.mobile_net_final_size = mobile_net_final_size
+        self.image_token_size = image_token_size
+        self.num_image_tokens = num_image_tokens
+        self.image_size = image_size
     
 class MobileGemmaConfig():
     def __init__(
@@ -56,7 +60,7 @@ class MobileNetProjector(nn.Module):
     def __init__(self, config: MobileNetConfig):
         super().__init__()
         self.config = config
-        self.projection_layer = nn.Linear(self.config.mobile_net_final_size, self.config.projection_dim)
+        self.projection_layer = nn.Linear(self.config.image_token_size, self.config.projection_dim)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.projection_layer(x)
@@ -68,11 +72,13 @@ class MobileNetImageEncoder(nn.Module):
         super().__init__()
         self.config = config
         self.encoder = models.mobilenet_v3_large(pretrained=True)
-        self.encoder.classifier = nn.Identity()
-    
+        self.features = self.encoder.features
+        
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.encoder(x)
-        x = x.unsqueeze(1)
+        x = self.features(x)
+        b,c,h,w = x.shape
+        x = x.view(b,c,h*w)
+        x = x.permute(0,2,1)
         return x
 
 class MobileGemmaForConditionalGeneration(nn.Module):
@@ -99,7 +105,6 @@ class MobileGemmaForConditionalGeneration(nn.Module):
         dtype, device = inputs_embeds.dtype, inputs_embeds.device
         # Shape: [Batch_Size, Seq_Len, Hidden_Size]
         scaled_image_features = image_features / (self.config.hidden_size**0.5)
-    
         # Combine the embeddings of the image tokens, the text tokens and mask out all the padding tokens.
         final_embedding = torch.zeros(batch_size, sequence_length, embed_dim, dtype=inputs_embeds.dtype, device=inputs_embeds.device)
         # Shape: [Batch_Size, Seq_Len]. True for text tokens

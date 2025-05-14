@@ -41,7 +41,7 @@ class MobileGemmaProcessor:
         tokenizer.add_bos_token = False
         tokenizer.add_eos_token = False
         self.tokenizer = tokenizer
-
+        self.preprocessor = MobileNet_V3_Large_Weights.IMAGENET1K_V1.transforms()
     def __call__(
         self,
         text: List[str],
@@ -51,9 +51,7 @@ class MobileGemmaProcessor:
     ) -> dict:
         assert len(images) == 1 and len(text) == 1, f"Received {len(images)} images for {len(text)} prompts."
 
-        weights = MobileNet_V3_Large_Weights.IMAGENET1K_V1
-        preprocess = weights.transforms()
-        pixel_values = [np.array(preprocess(img)) for img in images]
+        pixel_values = [np.array(self.preprocessor(img)) for img in images]
 
         # Convert the list of numpy arrays to a single numpy array with shape [Batch_Size, Channel, Height, Width]
         pixel_values = np.stack(pixel_values, axis=0)
