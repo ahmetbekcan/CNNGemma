@@ -3,3 +3,4 @@ settings.json
 __pycache__
 weights
 wandb
+test.ipynb
