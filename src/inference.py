@@ -47,7 +47,6 @@ def test_inference(
     # Generate tokens until you see the stop token
     stop_token = processor.tokenizer.eos_token_id
     generated_tokens = []
-
     for _ in range(max_tokens_to_generate):
         # Get the model outputs
         # TODO: remove the labels
@@ -124,7 +123,7 @@ def pg_inference(
     model, tokenizer = load_hf_model(model_path, device)
     model = model.to(device).eval()
 
-    num_image_tokens = 1
+    num_image_tokens = model.config.vision_config.num_image_tokens
     processor = MobileGemmaProcessor(tokenizer, num_image_tokens)
 
     print("Running inference")
