@@ -116,7 +116,6 @@ def pg_inference(
         device = "cuda"
     else:
         device = "cpu"
-    device = "cpu"
     print("Device in use: ", device)
 
     print(f"Loading model")
