@@ -2,13 +2,12 @@ import os
 import torch
 import csv
 from PIL import Image
-from processing_mobilegemma import MobileGemmaProcessor
+from processing_cnngemma import CNNGemmaProcessor
 from gemma import KVCache
-from mobile_gemma import MobileGemmaForConditionalGeneration
-from utils import load_hf_model
-from typing import List
+from cnn_gemma import CNNGemmaForConditionalGeneration, CNNGemmaConfig
+from utils import load_pretrained_model, load_hf_model
+from typing import Optional
 from tqdm import tqdm
-
 
 def move_inputs_to_device(model_inputs: dict, device: str):
     model_inputs = {k: v.to(device) for k, v in model_inputs.items()}
@@ -16,7 +15,7 @@ def move_inputs_to_device(model_inputs: dict, device: str):
 
 
 def get_model_inputs(
-    processor: MobileGemmaProcessor, prompt: str, image_file_path: str, device: str
+    processor: CNNGemmaProcessor, prompt: str, image_file_path: str, device: str
 ):
     image = Image.open(image_file_path)
     images = [image]
@@ -27,8 +26,8 @@ def get_model_inputs(
 
 
 def test_inference(
-    model: MobileGemmaForConditionalGeneration,
-    processor: MobileGemmaProcessor,
+    model: CNNGemmaForConditionalGeneration,
+    processor: CNNGemmaProcessor,
     device: str,
     prompt: str,
     image_file_path: str,
@@ -106,12 +105,21 @@ def pg_inference(
     model_path: str = None,
     prompt: str = None,
     image_file_path: str = None,
+    load_pretrained = True,
+    repo_id = "",
+    config: Optional[CNNGemmaConfig] = None,
     max_tokens_to_generate: int = 100,
     temperature: float = 0.8,
     top_p: float = 0.9,
     do_sample: bool = False,
     ):
     
+    if (load_pretrained == False and repo_id == ""):
+        raise ValueError("Repo id can not be empty while loading hugging face weights!")
+
+    if (load_pretrained == True and config == None):
+        raise ValueError("Config can not be empty while loading pretrained weights!")
+
     if torch.cuda.is_available():
         device = "cuda"
     else:
@@ -119,11 +127,15 @@ def pg_inference(
     print("Device in use: ", device)
 
     print(f"Loading model")
-    model, tokenizer = load_hf_model(model_path, device)
+    if (load_pretrained):
+        model, tokenizer = load_pretrained_model(paligemma_path=model_path+"/paligemma", device=device, config=config,dtype=torch.bfloat16)
+    else:
+        model, tokenizer = load_hf_model(model_path=model_path, repo_id=repo_id, device=device, dtype=torch.bfloat16)
+        
     model = model.to(device).eval()
 
     num_image_tokens = model.config.vision_config.num_image_tokens
-    processor = MobileGemmaProcessor(tokenizer, num_image_tokens)
+    processor = CNNGemmaProcessor(tokenizer, num_image_tokens, model.config.vision_config.architecture)
 
     print("Running inference")
     with torch.no_grad():
@@ -144,6 +156,9 @@ def batch_pg_inference(
     model_path: str,
     image_dir: str,
     output_csv_path: str,
+    load_pretrained = True,
+    repo_id = "",
+    config: Optional[CNNGemmaConfig] = None,
     prompt: str = None,
     max_tokens_to_generate: int = 100,
     temperature: float = 0.8,
@@ -151,6 +166,13 @@ def batch_pg_inference(
     do_sample: bool = False,
     batch_size: int = 4
 ):
+    if (load_pretrained == False and repo_id == ""):
+        raise ValueError("Repo id can not be empty while loading hugging face weights!")
+
+    if (load_pretrained == True and config == None):
+        raise ValueError("Config can not be empty while loading pretrained weights!")
+
+
     if torch.cuda.is_available():
         device = "cuda"
     else:
@@ -158,12 +180,15 @@ def batch_pg_inference(
     print("Device in use:", device)
 
     print("Loading model")
-    model, tokenizer = load_hf_model(model_path, device)
+    if (load_pretrained):
+        model, tokenizer = load_pretrained_model(paligemma_path=model_path+"/paligemma", device=device, config=config,dtype=torch.bfloat16)
+    else:
+        model, tokenizer = load_hf_model(model_path=model_path, repo_id=repo_id, device=device, dtype=torch.bfloat16)
+
     model = model.to(device).eval()
 
     num_image_tokens = model.config.vision_config.num_image_tokens
-    image_size = model.config.vision_config.image_size
-    processor = MobileGemmaProcessor(tokenizer, num_image_tokens, image_size)
+    processor = CNNGemmaProcessor(tokenizer, num_image_tokens, model.vision_config.architecture)
 
     # Get list of image file paths from the directory
     image_file_paths = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.lower().endswith(('png', 'jpg', 'jpeg', 'bmp', 'gif'))]
