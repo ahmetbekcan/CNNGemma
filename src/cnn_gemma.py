@@ -66,12 +66,10 @@ class MobileNetImageEncoder(nn.Module):
             x = self.model.avgpool(x)
             x = x.flatten(1)
             x = x.unsqueeze(1)
-            print(f"Mobile single token: {x.shape}")
             return x
         b,c,h,w = x.shape
         x = x.view(b,c,h*w)
         x = x.permute(0,2,1)
-        print(f"Mobile multiple token: {x.shape}")
         return x
     
 class EfficientNetImageEncoder(nn.Module):
@@ -88,12 +86,10 @@ class EfficientNetImageEncoder(nn.Module):
             x = self.model.avgpool(x)
             x = x.flatten(1)
             x = x.unsqueeze(1)
-            print(f"Efficient single token: {x.shape}")
             return x
         b,c,h,w = x.shape
         x = x.view(b,c,h*w)
         x = x.permute(0,2,1)
-        print(f"Efficient multiple token: {x.shape}")
         return x
 
 class CNNProjector(nn.Module):
