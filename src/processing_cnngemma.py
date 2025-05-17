@@ -2,11 +2,8 @@ from typing import Dict, List, Optional, Union, Tuple, Iterable
 import numpy as np
 from PIL import Image
 import torch
-from torchvision.models import MobileNet_V3_Large_Weights
-
-IMAGENET_STANDARD_MEAN = [0.5, 0.5, 0.5]
-IMAGENET_STANDARD_STD = [0.5, 0.5, 0.5]
-
+from torchvision.models import MobileNet_V3_Large_Weights, EfficientNet_B0_Weights
+from cnn_gemma import CNNArchitecture
 
 def add_image_tokens_to_prompt(prefix_prompt, bos_token, image_seq_len, image_token):
     # Quoting from the blog (https://huggingface.co/blog/paligemma#detailed-inference-process):
@@ -18,11 +15,11 @@ def add_image_tokens_to_prompt(prefix_prompt, bos_token, image_seq_len, image_to
     #       ref to HF implementation: https://github.com/huggingface/transformers/blob/7f79a97399bb52aad8460e1da2f36577d5dccfed/src/transformers/models/paligemma/processing_paligemma.py#L55-L73
     return f"{image_token * image_seq_len}{bos_token}{prefix_prompt}\n"
 
-class MobileGemmaProcessor:
+class CNNGemmaProcessor:
 
     IMAGE_TOKEN = "<image>"
 
-    def __init__(self, tokenizer, num_image_tokens: int):
+    def __init__(self, tokenizer, num_image_tokens: int, image_encoder_type: CNNArchitecture):
         super().__init__()
 
         self.image_seq_length = num_image_tokens
@@ -41,7 +38,13 @@ class MobileGemmaProcessor:
         tokenizer.add_bos_token = False
         tokenizer.add_eos_token = False
         self.tokenizer = tokenizer
-        self.preprocessor = MobileNet_V3_Large_Weights.IMAGENET1K_V1.transforms()
+        if (image_encoder_type == CNNArchitecture.MobileNetV3_Large):
+            self.preprocessor = MobileNet_V3_Large_Weights.IMAGENET1K_V1.transforms()
+        elif (image_encoder_type == CNNArchitecture.EfficientNetB0):
+            self.preprocessor = EfficientNet_B0_Weights.IMAGENET1K_V1.transforms()
+        else:
+            raise ValueError("This model is not implemented")
+
     def __call__(
         self,
         text: List[str],

@@ -1,25 +1,113 @@
 import torch.nn as nn
-import torch
-from typing import Optional, Tuple, List
-from gemma import GemmaForCausalLM, KVCache, GemmaConfig
+from enum import Enum
 import torchvision.models as models
+import torch 
+from gemma import GemmaForCausalLM, KVCache, GemmaConfig
+from typing import Optional, Tuple
 
-class MobileNetConfig():
-    def __init__(
-        self,
-        hidden_size=2048,
-        image_token_size=960,
-        num_image_tokens=49,
-        image_size=224,
-        **kwargs
-    ):
-        super().__init__()
+class CNNArchitecture(Enum):
+    EfficientNetB0 = "EfficientNetB0"
+    MobileNetV3_Large = "MobileNetV3_Large"
+
+class CNNTokenType(Enum):
+    Multiple = "Multiple"
+    Single = "Single"
+
+class CNNImageEncoderConfig():
+    def __init__(self,
+            architecture: CNNArchitecture,
+            token_type: CNNTokenType,
+            hidden_size=2048,
+            image_size=224,
+            **kwargs):
+        self.architecture = architecture
+        self.token_type = token_type
         self.hidden_size = hidden_size
-        self.image_token_size = image_token_size
-        self.num_image_tokens = num_image_tokens
         self.image_size = image_size
+
+        if (self.architecture == CNNArchitecture.MobileNetV3_Large):
+            self.image_token_size = 960
+        elif (self.architecture == CNNArchitecture.EfficientNetB0):
+            self.image_token_size = 1280
+        else:
+            raise ValueError("This model is not implemented!")
+        
+        if (self.token_type == CNNTokenType.Single):
+            self.num_image_tokens = 1
+        else:
+            self.num_image_tokens = 49
+
+
+class CNNImageEncoder(nn.Module):
+    def __init__(self, config: CNNImageEncoderConfig):
+        super().__init__()
+        self.config = config
+        if (config.architecture == CNNArchitecture.MobileNetV3_Large):
+            self.model = MobileNetImageEncoder(config)
+        elif (config.architecture == CNNArchitecture.EfficientNetB0):
+            self.model = EfficientNetImageEncoder(config)
+        else:
+            raise ValueError(f"The model {config.architecture} is not implemented!")
     
-class MobileGemmaConfig():
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.model.forward(x)
+
+class MobileNetImageEncoder(nn.Module):
+    def __init__(self, config: CNNImageEncoderConfig):
+        super().__init__()
+        assert(config.architecture == CNNArchitecture.MobileNetV3_Large)
+        self.config = config
+        self.model = models.mobilenet_v3_large(pretrained=True)
+        self.features = self.model.features
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.features(x)
+        if (self.config.token_type == CNNTokenType.Single):
+            x = self.model.avgpool(x)
+            x = x.flatten(1)
+            x = x.unsqueeze(1)
+            print(f"Mobile single token: {x.shape}")
+            return x
+        b,c,h,w = x.shape
+        x = x.view(b,c,h*w)
+        x = x.permute(0,2,1)
+        print(f"Mobile multiple token: {x.shape}")
+        return x
+    
+class EfficientNetImageEncoder(nn.Module):
+    def __init__(self, config: CNNImageEncoderConfig):
+        super().__init__()
+        assert(config.architecture == CNNArchitecture.EfficientNetB0)
+        self.config = config
+        self.model = models.efficientnet_b0(pretrained=True)
+        self.features = self.model.features
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.features(x)
+        if (self.config.token_type == CNNTokenType.Single):
+            x = self.model.avgpool(x)
+            x = x.flatten(1)
+            x = x.unsqueeze(1)
+            print(f"Efficient single token: {x.shape}")
+            return x
+        b,c,h,w = x.shape
+        x = x.view(b,c,h*w)
+        x = x.permute(0,2,1)
+        print(f"Efficient multiple token: {x.shape}")
+        return x
+
+class CNNProjector(nn.Module):
+
+    def __init__(self, config: CNNImageEncoderConfig):
+        super().__init__()
+        self.config = config
+        self.projection_layer = nn.Linear(self.config.image_token_size, self.config.projection_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.projection_layer(x)
+        return x
+
+class CNNGemmaConfig():
     def __init__(
         self,
         vision_config=None,
@@ -43,50 +131,32 @@ class MobileGemmaConfig():
 
         if vision_config is None:
             vision_config = {}
+        else:
+            vision_config["architecture"] = CNNArchitecture[vision_config["architecture"]]
+            vision_config["token_type"] = CNNTokenType[vision_config["token_type"]]
+            
         if text_config is None:
             text_config = {}
 
-        self.vision_config = MobileNetConfig(**vision_config)
+        self.vision_config = CNNImageEncoderConfig(**vision_config)
         self.text_config = text_config
 
         self.text_config = GemmaConfig(**text_config, pad_token_id=pad_token_id)
         self.vocab_size = self.text_config.vocab_size
 
-        self.text_config.num_image_tokens = 1
+        if (self.vision_config.token_type == CNNTokenType.Single):
+            self.text_config.num_image_tokens = 1
+        else:
+            self.text_config.num_image_tokens = 49
+
         self.vision_config.projection_dim = projection_dim
 
-class MobileNetProjector(nn.Module):
-
-    def __init__(self, config: MobileNetConfig):
+class CNNGemmaForConditionalGeneration(nn.Module):
+    def __init__(self, config: CNNGemmaConfig):
         super().__init__()
         self.config = config
-        self.projection_layer = nn.Linear(self.config.image_token_size, self.config.projection_dim)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.projection_layer(x)
-        return x
-
-class MobileNetImageEncoder(nn.Module):
-
-    def __init__(self, config: MobileNetConfig):
-        super().__init__()
-        self.config = config
-        self.encoder = models.mobilenet_v3_large(pretrained=True)
-        self.features = self.encoder.features
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
-        b,c,h,w = x.shape
-        x = x.view(b,c,h*w)
-        x = x.permute(0,2,1)
-        return x
-
-class MobileGemmaForConditionalGeneration(nn.Module):
-    def __init__(self, config: MobileGemmaConfig):
-        super().__init__()
-        self.config = config
-        self.vision_tower = MobileNetImageEncoder(config.vision_config)
-        self.multi_modal_projector = MobileNetProjector(config.vision_config)
+        self.vision_tower = CNNImageEncoder(config.vision_config)
+        self.multi_modal_projector = CNNProjector(config.vision_config)
         self.vocab_size = config.vocab_size
 
         language_model = GemmaForCausalLM(config.text_config)
