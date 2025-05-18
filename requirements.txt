@@ -1,0 +1,10 @@
+torch==2.2.2
+torchvision==0.17.2
+wandb==0.18.7
+pandas==2.2.3
+Pillow==11.2.1
+matplotlib==3.10.0
+tqdm==4.66.5
+transformers==4.45.2
+huggingface_hub==0.24.6
+safetensors==0.4.5
