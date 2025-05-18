@@ -1,4 +1,4 @@
-# DI725-Project
+# CNNGemma
 
 ## Title
 Vision-Language Model with CNN-Based Image Encoding for Satellite Image Captioning
