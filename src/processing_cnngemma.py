@@ -49,6 +49,7 @@ class CNNGemmaProcessor:
         self,
         text: List[str],
         images: List[Image.Image],
+        labels = None,
         padding: str = "longest",
         truncation: bool = True,
     ) -> dict:
@@ -73,13 +74,24 @@ class CNNGemmaProcessor:
         ]
 
         # Returns the input_ids and attention_mask as PyTorch tensors
-        inputs = self.tokenizer(
-            input_strings,
-            return_tensors="pt",
-            padding=padding,
-            truncation=truncation,
-        )
-
+        if (labels == None):
+            inputs = self.tokenizer(
+                input_strings,
+                return_tensors="pt",
+                padding=padding,
+                truncation=truncation,
+            )
+        else:
+            suffix = [sfx + self.tokenizer.eos_token for sfx in labels]
+            inputs = self.tokenizer(
+                input_strings,
+                text_pair=suffix,
+                padding=padding,
+                return_tensors="pt",
+                return_token_type_ids=True
+            )
         return_data = {"pixel_values": pixel_values, **inputs}
+        labels = inputs["input_ids"].masked_fill(inputs["token_type_ids"] == 0, -100)
+        return_data.update({"labels": labels})
 
         return return_data
