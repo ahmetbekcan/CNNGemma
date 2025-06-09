@@ -70,6 +70,23 @@ class GemmaConfig():
         self.attention_dropout = attention_dropout
         self.pad_token_id = pad_token_id
 
+    def to_dict(self):
+        return {
+            "vocab_size": self.vocab_size,
+            "max_position_embeddings": self.max_position_embeddings,
+            "hidden_size": self.hidden_size,
+            "intermediate_size": self.intermediate_size,
+            "num_hidden_layers": self.num_hidden_layers,
+            "num_attention_heads": self.num_attention_heads,
+            "head_dim": self.head_dim,
+            "num_key_value_heads": self.num_key_value_heads,
+            "rms_norm_eps": self.rms_norm_eps,
+            "rope_theta": self.rope_theta,
+            "attention_bias": self.attention_bias,
+            "attention_dropout": self.attention_dropout,
+            "pad_token_id": self.pad_token_id,
+        }
+
 class GemmaRMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()

@@ -3,7 +3,8 @@ from enum import Enum
 import torchvision.models as models
 import torch 
 from gemma import GemmaForCausalLM, KVCache, GemmaConfig
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
+from transformers.modeling_outputs import ModelOutput
 
 class CNNArchitecture(Enum):
     EfficientNetB0 = "EfficientNetB0"
@@ -37,6 +38,15 @@ class CNNImageEncoderConfig():
         else:
             self.num_image_tokens = 49
 
+    def to_dict(self):
+        return {
+            "architecture": self.architecture.name if hasattr(self.architecture, "name") else self.architecture,
+            "token_type": self.token_type.name if hasattr(self.token_type, "name") else self.token_type,
+            "hidden_size": self.hidden_size,
+            "image_size": self.image_size,
+            "image_token_size": self.image_token_size,
+            "num_image_tokens": self.num_image_tokens,
+        }
 
 class CNNImageEncoder(nn.Module):
     def __init__(self, config: CNNImageEncoderConfig):
@@ -146,7 +156,20 @@ class CNNGemmaConfig():
             self.text_config.num_image_tokens = 49
 
         self.vision_config.projection_dim = projection_dim
-
+    
+    def to_dict(self):
+        return {
+            "ignore_index": self.ignore_index,
+            "image_token_index": self.image_token_index,
+            "vocab_size": self.vocab_size,
+            "projection_dim": self.projection_dim,
+            "hidden_size": self.hidden_size,
+            "is_encoder_decoder": self.is_encoder_decoder,
+            "pad_token_id": self.pad_token_id,
+            "vision_config": self.vision_config.to_dict() if hasattr(self.vision_config, "to_dict") else self.vision_config,
+            "text_config": self.text_config.to_dict() if hasattr(self.text_config, "to_dict") else self.text_config,
+        }
+    
 class CNNGemmaForConditionalGeneration(nn.Module):
     def __init__(self, config: CNNGemmaConfig):
         super().__init__()
@@ -197,7 +220,6 @@ class CNNGemmaForConditionalGeneration(nn.Module):
         dtype, device = inputs_embeds.dtype, inputs_embeds.device
         min_dtype = torch.finfo(dtype).min
         q_len = inputs_embeds.shape[1]
-    
         if kv_cache is None or kv_cache.num_items() == 0:
             # Do not mask any token, because we're in the prefill phase
             # This only works when we have no padding
@@ -229,14 +251,16 @@ class CNNGemmaForConditionalGeneration(nn.Module):
             position_ids = (attention_mask.cumsum(-1)).masked_fill_((attention_mask == 0), 1).to(device)
 
         return final_embedding, causal_mask, position_ids
-
+    
     def forward(
         self,
         input_ids: torch.LongTensor = None,
         pixel_values: torch.FloatTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         kv_cache: Optional[KVCache] = None,
-    ) -> Tuple:
+        labels: Optional[torch.LongTensor] = None,
+        token_type_ids: Optional[torch.LongTensor] = None
+    ) -> Union[Tuple, ModelOutput]:
 
         # Make sure the input is right-padded
         assert torch.all(attention_mask == 1), "The input cannot be padded"
@@ -253,6 +277,10 @@ class CNNGemmaForConditionalGeneration(nn.Module):
         # Merge the embeddings of the text tokens and the image tokens
         inputs_embeds, attention_mask, position_ids = self._merge_input_ids_with_image_features(image_features, inputs_embeds, input_ids, attention_mask, kv_cache)
         
+        #copied from hugging face implementation (PaliGemmaForConditionalGeneration)
+        if labels is not None and self.pad_token_id in labels:
+            labels = torch.where(input_ids == self.pad_token_id, self.config.ignore_index, labels)
+
         outputs = self.language_model(
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -260,4 +288,26 @@ class CNNGemmaForConditionalGeneration(nn.Module):
             kv_cache=kv_cache,
         )
 
-        return outputs
+        #copied from hugging face implementation (PaliGemmaForConditionalGeneration)
+        logits = outputs.logits
+        logits = logits.float()
+        loss = None
+        if labels is not None:
+            shift_logits = logits[..., :-1, :]
+            shift_labels = labels[..., 1:]
+            if attention_mask is not None:
+                # we use the input attention mask to shift the logits and labels, because it is 2D.
+                shift_attention_mask = attention_mask[..., 1:]
+                shift_logits = shift_logits[shift_attention_mask.to(logits.device) != 0].contiguous()
+                shift_labels = shift_labels[shift_attention_mask.to(shift_labels.device) != 0].contiguous()
+            else:
+                shift_logits = shift_logits.contiguous()
+                shift_labels = shift_labels.contiguous()
+            # Flatten the tokens
+            loss_fct = nn.CrossEntropyLoss()
+
+            flat_logits = shift_logits.view(-1, self.config.text_config.vocab_size)
+            flat_labels = shift_labels.view(-1).to(shift_logits.device)
+            loss = loss_fct(flat_logits, flat_labels)
+        output = (logits,) + outputs[1:]
+        return (loss,) + output if loss is not None else output
