@@ -252,6 +252,52 @@ class CNNGemmaForConditionalGeneration(nn.Module):
 
         return final_embedding, causal_mask, position_ids
     
+    #copied from hugging face implementation (PaliGemmaForConditionalGeneration)
+    def _update_causal_mask(self, attention_mask, token_type_ids, inputs_embeds, kv_cache: KVCache):
+        dtype = inputs_embeds.dtype
+        min_dtype = torch.finfo(dtype).min
+        sequence_length = inputs_embeds.shape[1]
+        past_seen_tokens = kv_cache.num_items() if kv_cache is not None else 0
+        cache_position = torch.arange(
+            past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+        )
+
+        if kv_cache is not None:
+            target_length = kv_cache
+        else:
+            target_length = (
+                attention_mask.shape[-1]
+                if isinstance(attention_mask, torch.Tensor)
+                else cache_position[0] + sequence_length + 1
+            )
+
+        if attention_mask is not None and attention_mask.dim() == 4:
+            # In this case we assume that the mask comes already in inverted form and requires no inversion or slicing.
+            return attention_mask
+
+        causal_mask = torch.full(
+            (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=cache_position.device
+        )
+        # Causal diagonal mask only if training, otherwise attend to the whole prefix. Training-specific attn for prefix is handled below
+        if sequence_length != 1:
+            causal_mask = torch.triu(causal_mask, diagonal=1)
+
+        causal_mask *= torch.arange(target_length, device=cache_position.device) > cache_position.reshape(-1, 1)
+        causal_mask = causal_mask[None, None, :, :].expand(inputs_embeds.shape[0], 1, -1, -1)
+        if attention_mask is not None:
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = attention_mask.shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(causal_mask.device)
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            # we are training thus we need to create a full mask on the image + prefix but causal on suffix
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                token_type_ids[:, None, None, :].to(causal_mask.device) == 0, 0
+            )
+        return causal_mask
+    
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -275,21 +321,23 @@ class CNNGemmaForConditionalGeneration(nn.Module):
         # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Hidden_Size]
         image_features = self.multi_modal_projector(selected_image_feature)
         # Merge the embeddings of the text tokens and the image tokens
-        inputs_embeds, attention_mask, position_ids = self._merge_input_ids_with_image_features(image_features, inputs_embeds, input_ids, attention_mask, kv_cache)
+        inputs_embeds, causal_mask, position_ids = self._merge_input_ids_with_image_features(image_features, inputs_embeds, input_ids, attention_mask, kv_cache)
         
         #copied from hugging face implementation (PaliGemmaForConditionalGeneration)
-        if labels is not None and self.pad_token_id in labels:
-            labels = torch.where(input_ids == self.pad_token_id, self.config.ignore_index, labels)
+        if labels is not None:
+            if self.pad_token_id in labels:
+                labels = torch.where(input_ids == self.pad_token_id, self.config.ignore_index, labels)
+            causal_mask = self._update_causal_mask(attention_mask, token_type_ids, inputs_embeds, kv_cache)
 
         outputs = self.language_model(
-            attention_mask=attention_mask,
+            attention_mask=causal_mask,
             position_ids=position_ids,
             inputs_embeds=inputs_embeds,
             kv_cache=kv_cache,
         )
 
         #copied from hugging face implementation (PaliGemmaForConditionalGeneration)
-        logits = outputs.logits
+        logits = outputs["logits"]
         logits = logits.float()
         loss = None
         if labels is not None:
@@ -309,5 +357,6 @@ class CNNGemmaForConditionalGeneration(nn.Module):
             flat_logits = shift_logits.view(-1, self.config.text_config.vocab_size)
             flat_labels = shift_labels.view(-1).to(shift_logits.device)
             loss = loss_fct(flat_logits, flat_labels)
-        output = (logits,) + outputs[1:]
-        return (loss,) + output if loss is not None else output
+            outputs["loss"] = loss
+        
+        return outputs
