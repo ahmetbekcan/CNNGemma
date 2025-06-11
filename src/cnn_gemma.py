@@ -68,10 +68,9 @@ class MobileNetImageEncoder(nn.Module):
         assert(config.architecture == CNNArchitecture.MobileNetV3_Large)
         self.config = config
         self.model = models.mobilenet_v3_large(pretrained=True)
-        self.features = self.model.features
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
+        x = self.model.features(x)
         if (self.config.token_type == CNNTokenType.Single):
             x = self.model.avgpool(x)
             x = x.flatten(1)
@@ -88,10 +87,9 @@ class EfficientNetImageEncoder(nn.Module):
         assert(config.architecture == CNNArchitecture.EfficientNetB0)
         self.config = config
         self.model = models.efficientnet_b0(pretrained=True)
-        self.features = self.model.features
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
+        x = self.model.features(x)
         if (self.config.token_type == CNNTokenType.Single):
             x = self.model.avgpool(x)
             x = x.flatten(1)
@@ -186,6 +184,12 @@ class CNNGemmaForConditionalGeneration(nn.Module):
     def tie_weights(self):
         return self.language_model.tie_weights()
 
+    def state_dict(self, *args, **kwargs):
+        state = super().state_dict(*args, **kwargs)
+        if self.language_model.lm_head.weight.data_ptr() == self.language_model.model.embed_tokens.weight.data_ptr():
+            del state['language_model.lm_head.weight']
+        return state
+    
     def _merge_input_ids_with_image_features(
         self, image_features: torch.Tensor, inputs_embeds: torch.Tensor, input_ids: torch.Tensor, attention_mask: torch.Tensor, kv_cache: Optional[KVCache] = None
     ):
