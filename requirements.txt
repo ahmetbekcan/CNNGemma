@@ -8,3 +8,5 @@ tqdm==4.66.5
 transformers==4.45.2
 huggingface_hub==0.24.6
 safetensors==0.4.5
+datasets==3.5.0
+accelerate==1.2.0

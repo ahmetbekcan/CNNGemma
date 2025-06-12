@@ -4,3 +4,7 @@ __pycache__
 weights
 wandb
 test.ipynb
+debug*
+.vscode
+notes*
+todo*
