@@ -103,3 +103,39 @@ def load_pretrained_model(paligemma_path: str, config: CNNGemmaConfig, device: s
     model.tie_weights()
 
     return (model, tokenizer)
+
+def load_finetuned_model(model_path : str, hub_id: str, config: CNNGemmaConfig, device: str, dtype: Optional[torch.dtype] = torch.bfloat16) -> Tuple[CNNGemmaForConditionalGeneration, AutoTokenizer]:
+    tokenizer = AutoTokenizer.from_pretrained("google/paligemma-3b-pt-224", padding_side="right")
+    assert tokenizer.padding_side == "right"
+
+    os.makedirs(model_path, exist_ok=True)
+    if not any(
+        f.endswith('.safetensors') for f in os.listdir(model_path)
+        if os.path.isfile(os.path.join(model_path, f))
+    ):
+        revision = "main"
+        if (hub_id == ""):
+            raise ValueError("hub_id must not be empty if model weights are not present in the model_path!")
+        
+        snapshot_download(
+            repo_id=hub_id,
+            local_dir=model_path,
+            allow_patterns=["*.safetensors", "*.json"],
+            revision=revision
+        )
+
+    safetensors_files = glob.glob(os.path.join(model_path, "*.safetensors"))
+    tensors = {}
+    for safetensors_file in safetensors_files:
+        with safe_open(safetensors_file, framework="pt", device=device) as f:
+            for key in f.keys():
+                tensors[key] = f.get_tensor(key)
+
+    model = CNNGemmaForConditionalGeneration(config)
+    model.to(device=device, dtype=dtype)
+
+    model.load_state_dict(tensors, strict=False)
+
+    model.tie_weights()
+
+    return (model, tokenizer)
