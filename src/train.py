@@ -52,6 +52,7 @@ with open(absolute_config_path, "r") as f:
 device = "cuda"
 dtype = torch.bfloat16
 config = CNNGemmaConfig(**model_config_file)
+print("Loading pretrained model...")
 model, tokenizer = load_pretrained_model(paligemma_path=absolute_weight_path, device=device, config=config, dtype=dtype)
 
 processor = CNNGemmaProcessor(tokenizer=tokenizer,num_image_tokens=model.config.vision_config.num_image_tokens, image_encoder_type=model.config.vision_config.architecture)
@@ -67,7 +68,7 @@ def collate_fn(examples):
 for param in model.language_model.parameters():
     param.requires_grad = False
 
-
+print("Loading dataset...")
 captions_csv_path = str(absolute_dataset_path / "captions.csv")
 dataset = load_dataset("csv", data_files=captions_csv_path, split="train")
 
@@ -123,4 +124,5 @@ trainer = Trainer(
 )
 trainer.train()
 
-trainer.push_to_hub()
+if (push_to_hub):
+    trainer.push_to_hub()
