@@ -78,7 +78,7 @@ total_train_samples = len(train_dataset)
 batch_size = 1
 gradient_accumulation_steps = 4
 steps_per_epoch = total_train_samples // (batch_size * gradient_accumulation_steps)
-save_steps = steps_per_epoch // 4  # 25% of epoch
+save_steps = steps_per_epoch // 1
 
 wandb.login()
 
@@ -102,7 +102,7 @@ args = TrainingArguments(
     optim="adamw_torch",
     save_strategy="steps",
     save_steps=save_steps,
-    save_total_limit=1,
+    save_total_limit=3,
     save_safetensors=True,
     bf16=True,
     dataloader_pin_memory=False,
