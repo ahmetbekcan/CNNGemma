@@ -91,7 +91,7 @@ class CNNGemmaProcessor:
                 return_token_type_ids=True
             )
         return_data = {"pixel_values": pixel_values, **inputs}
-        if (inputs["token_type_ids"] != None):
+        if ("token_type_ids" in inputs):
             labels = inputs["input_ids"].masked_fill(inputs["token_type_ids"] == 0, -100)
         return_data.update({"labels": labels})
 
