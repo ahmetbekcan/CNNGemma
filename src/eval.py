@@ -110,14 +110,20 @@ def evaluate(example):
     for key in example:
         if key.startswith("caption"):
             label = example[key]
-            bleu_result = bleu.compute(predictions=[prediction], references=[[label]])
-            meteor_result = meteor.compute(predictions=[prediction], references=[[label]])
-            rouge_result = rouge.compute(predictions=[prediction], references=[[label]])
 
-            bleu_scores.append(bleu_result["bleu"])
-            meteor_scores.append(meteor_result["meteor"])
-            rouge_scores.append(rouge_result["rougeL"])
-    
+            if prediction.strip():
+                bleu_result = bleu.compute(predictions=[prediction], references=[[label]])
+                meteor_result = meteor.compute(predictions=[prediction], references=[[label]])
+                rouge_result = rouge.compute(predictions=[prediction], references=[[label]])
+
+                bleu_scores.append(bleu_result["bleu"])
+                meteor_scores.append(meteor_result["meteor"])
+                rouge_scores.append(rouge_result["rougeL"])
+            else:
+                bleu_scores.append(0.0)
+                meteor_scores.append(0.0)
+                rouge_scores.append(0.0)
+
     bleu_avg = sum(bleu_scores) / len(bleu_scores)
     meteor_avg = sum(meteor_scores) / len(meteor_scores)
     rouge_avg = sum(rouge_scores) / len(rouge_scores)
