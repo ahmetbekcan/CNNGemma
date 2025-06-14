@@ -5,12 +5,12 @@ from PIL import Image
 from processing_cnngemma import CNNGemmaProcessor
 from gemma import KVCache
 from cnn_gemma import CNNGemmaForConditionalGeneration, CNNGemmaConfig
-from utils import load_pretrained_model, load_hf_model
+from utils import load_pretrained_model, load_finetuned_model
 from typing import Optional
 from tqdm import tqdm
 
 def move_inputs_to_device(model_inputs: dict, device: str):
-    model_inputs = {k: v.to(device) for k, v in model_inputs.items()}
+    model_inputs = {k: v.to(device) if v is not None else None for k, v in model_inputs.items()}
     return model_inputs
 
 
@@ -100,43 +100,19 @@ def _sample_top_p(probs: torch.Tensor, p: float):
     next_token = torch.gather(probs_idx, -1, next_token)
     return next_token
 
-
-def pg_inference(
-    model_path: str = None,
+def inference(
+    model,
+    processor,
     prompt: str = None,
     image_file_path: str = None,
-    load_pretrained = True,
-    repo_id = "",
-    config: Optional[CNNGemmaConfig] = None,
     max_tokens_to_generate: int = 100,
+    device = "cuda",
     temperature: float = 0.8,
     top_p: float = 0.9,
     do_sample: bool = False,
     ):
     
-    if (load_pretrained == False and repo_id == ""):
-        raise ValueError("Repo id can not be empty while loading hugging face weights!")
-
-    if (load_pretrained == True and config == None):
-        raise ValueError("Config can not be empty while loading pretrained weights!")
-
-    if torch.cuda.is_available():
-        device = "cuda"
-    else:
-        device = "cpu"
-    print("Device in use: ", device)
-
-    print(f"Loading model")
-    if (load_pretrained):
-        model, tokenizer = load_pretrained_model(paligemma_path=model_path+"/paligemma", device=device, config=config,dtype=torch.bfloat16)
-    else:
-        model, tokenizer = load_hf_model(model_path=model_path, repo_id=repo_id, device=device, dtype=torch.bfloat16)
-        
-    model = model.to(device).eval()
-
-    num_image_tokens = model.config.vision_config.num_image_tokens
-    processor = CNNGemmaProcessor(tokenizer, num_image_tokens, model.config.vision_config.architecture)
-
+    model.eval()
     print("Running inference")
     with torch.no_grad():
         response = test_inference(
@@ -151,75 +127,5 @@ def pg_inference(
             do_sample,
         )
         return response
-
-def batch_pg_inference(
-    model_path: str,
-    image_dir: str,
-    output_csv_path: str,
-    load_pretrained = True,
-    repo_id = "",
-    config: Optional[CNNGemmaConfig] = None,
-    prompt: str = None,
-    max_tokens_to_generate: int = 100,
-    temperature: float = 0.8,
-    top_p: float = 0.9,
-    do_sample: bool = False,
-    batch_size: int = 4
-):
-    if (load_pretrained == False and repo_id == ""):
-        raise ValueError("Repo id can not be empty while loading hugging face weights!")
-
-    if (load_pretrained == True and config == None):
-        raise ValueError("Config can not be empty while loading pretrained weights!")
-
-
-    if torch.cuda.is_available():
-        device = "cuda"
-    else:
-        device = "cpu"
-    print("Device in use:", device)
-
-    print("Loading model")
-    if (load_pretrained):
-        model, tokenizer = load_pretrained_model(paligemma_path=model_path+"/paligemma", device=device, config=config,dtype=torch.bfloat16)
-    else:
-        model, tokenizer = load_hf_model(model_path=model_path, repo_id=repo_id, device=device, dtype=torch.bfloat16)
-
-    model = model.to(device).eval()
-
-    num_image_tokens = model.config.vision_config.num_image_tokens
-    processor = CNNGemmaProcessor(tokenizer, num_image_tokens, model.vision_config.architecture)
-
-    # Get list of image file paths from the directory
-    image_file_paths = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.lower().endswith(('png', 'jpg', 'jpeg', 'bmp', 'gif'))]
-    
-    results = []
-    print("Running inference on bulk images")
-    
-    with torch.no_grad():
-        for i in tqdm(range(0, len(image_file_paths), batch_size), desc="Processing Images"):
-            batch_paths = image_file_paths[i:i + batch_size]
-            batch_responses = [
-                test_inference(
-                    model,
-                    processor,
-                    device,
-                    prompt,
-                    image_path,
-                    max_tokens_to_generate,
-                    temperature,
-                    top_p,
-                    do_sample,
-                ) for image_path in batch_paths
-            ]
-            results.extend([(os.path.basename(path), response) for path, response in zip(batch_paths, batch_responses)])
-
-    print(f"Saving results to {output_csv_path}")
-    with open(output_csv_path, mode='w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(["image", "generated_caption"])
-        writer.writerows(results)
-    
-    print("Processing complete.")
 
     
