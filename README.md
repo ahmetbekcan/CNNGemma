@@ -12,17 +12,17 @@ This project proposes an alternative image encoding strategy aimed at balancing 
 ## Methodology
 
 ### Encoder Design:
-A lightweight convolutional neural network (CNN) model will be used to encode satellite images into feature representations. This model will replace the SigLIP model in the original PaliGemma architecture.
+Lightweight convolutional neural network (CNN) models will be used to encode satellite images into feature representations. These models will replace the SigLIP model in the original PaliGemma architecture.
 
 ### Integration with Language Model:
 The CNN outputs will be projected into a format compatible with the decoder-only language model in PaliGemma.
 
 ### Training and Evaluation:
-The CNN model will be trained on the RISC dataset using existing caption annotations. The language model will be frozen to increase the training speed. Performance will be evaluated using captioning metrics such as BLEU, METEOR, and CIDEr, as well as computational metrics like inference speed and memory usage.
+The CNN model will be trained on the RISCM dataset using existing caption annotations. The language model will be frozen to increase the training speed. Performance will be evaluated using captioning metrics such as BLEU, METEOR, and ROUGE, as well as computational metrics like inference speed and memory usage.
 
 ### Comparative Analysis:
 Due to limited resources, it is not possible to compare SigLIP with CNN based encoders. Instead, different CNN encoders (MobileNetV3 Large and EfficientNet B0) that are pretrained with ImageNet data will be fine-tuned on RISCM dataset, and their performances will be compared to each other. Also, the performances of different tokenization techniques will be compared. The first tokenization technique is taking the final output of CNN encoders as a single image token, and the second one is extracting the feature map of the CNN models as multiple tokens.
 
 ## Novelty and Conceptual Merits
 
-By introducing a middle ground between full transformer encoders and no encoders, this project explores a novel architecture that leverages the efficiency of CNNs without compromising training dynamics. Developing a lightweight model for the classification of satellite images can be beneficial in real-world scenarios with limited computational resources. Finally, this approach offers insights into how hybrid architectures can enhance the efficiency and adaptability of vision-language models for specialized domains.
+By introducing a middle ground between full transformer encoders and no encoders, this project explores a novel architecture that leverages the efficiency of CNNs without compromising training dynamics. Developing a lightweight model for the classification of satellite images can be beneficial in real-world scenarios with limited computational resources. Also, this study investigates how varying the number of image tokens fed into the model affects its performance. Finally, this approach offers insights into how hybrid architectures can enhance the efficiency and adaptability of vision-language models for specialized domains.
