@@ -10,3 +10,5 @@ huggingface_hub==0.24.6
 safetensors==0.4.5
 datasets==3.5.0
 accelerate==1.2.0
+evaluate==0.4.3
+rouge_score==0.1.2
