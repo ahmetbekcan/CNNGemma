@@ -10,6 +10,9 @@ from datasets import load_dataset
 import argparse
 from inference import inference
 from transformers import AutoProcessor, PaliGemmaForConditionalGeneration
+from huggingface_hub import snapshot_download
+import os
+import PIL
 
 #--------------------------------PARSING ARGUMENTS----------------------------------
 parser = argparse.ArgumentParser()
@@ -38,26 +41,41 @@ if args_cli.output_dir == "auto":
 else:
     absolute_eval_output_dir = resolve_path(args_cli.output_dir)
 
-if not absolute_config_path.is_file():
-    raise FileNotFoundError(f"Config file not found: {absolute_config_path}")
+if (args_cli.eval_paligemma != True):
+    if not absolute_config_path.is_file():
+        raise FileNotFoundError(f"Config file not found: {absolute_config_path}")
+    with open(absolute_config_path, "r") as f:
+        model_config_file = json.load(f)
+    config = CNNGemmaConfig(**model_config_file)
 
 if not absolute_dataset_path.exists():
     raise FileNotFoundError(f"Dataset path not found: {absolute_dataset_path}")
 
-with open(absolute_config_path, "r") as f:
-    model_config_file = json.load(f)
 #--------------------------------PARSING ARGUMENTS----------------------------------
 
 absolute_eval_output_dir.mkdir(parents=True, exist_ok=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 dtype = torch.bfloat16
-config = CNNGemmaConfig(**model_config_file)
 print("Loading model...")
 
 if (args_cli.eval_paligemma):
-    model_id = "google/paligemma-3b-mix-224"
-    model = PaliGemmaForConditionalGeneration.from_pretrained(model_id).eval()
+    model_id = args_cli.hub_id
+    os.makedirs(absolute_weight_path, exist_ok=True)
+
+    #download paligemma safetensors and config.json if not downloaded
+    if not any(
+        f.endswith('.safetensors') for f in os.listdir(absolute_weight_path)
+        if os.path.isfile(os.path.join(absolute_weight_path, f))
+    ):
+        snapshot_download(
+            repo_id=model_id,
+            local_dir=absolute_weight_path,
+            allow_patterns=["*.safetensors", "*.json"],
+            revision="bfloat16"
+        )
+
+    model = PaliGemmaForConditionalGeneration.from_pretrained(absolute_weight_path, revision="bfloat16").to(device).eval()
     processor = AutoProcessor.from_pretrained(model_id)
 elif (args_cli.eval_pretrained):
     model, tokenizer = load_pretrained_model(model_path=absolute_weight_path, device=device, config=config, dtype=dtype)
@@ -101,7 +119,19 @@ if (args_cli.log_to_wandb):
 
 def evaluate(example):
     image_pth = absolute_dataset_path / "resized" / example["image"]
-    prediction = inference(model, processor, prompt="caption en", image_file_path=image_pth, device=device, do_sample=False)
+    if (args_cli.eval_paligemma != True):
+        prediction = inference(model, processor, prompt="caption en", image_file_path=image_pth, device=device, do_sample=False)
+    else:
+        #code was adapted from https://huggingface.co/google/paligemma-3b-pt-224
+        prompt = "caption en"
+        
+        model_inputs = processor(text=prompt, images=PIL.Image.open(image_pth).convert("RGB"), return_tensors="pt").to(device)
+        input_len = model_inputs["input_ids"].shape[-1]
+        prediction = ""
+        with torch.inference_mode():
+            generation = model.generate(**model_inputs, max_new_tokens=100, do_sample=False)
+            generation = generation[0][input_len:]
+            prediction = processor.decode(generation, skip_special_tokens=True)
 
     bleu_scores = []
     meteor_scores = []
